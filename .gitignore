@@ -1,0 +1,11 @@
+@"
+bin/
+obj/
+*.user
+*.suo
+*.log
+local.settings.json
+node_modules/
+.vs/
+"@ | Out-File .gitignore -Encoding UTF8
+
