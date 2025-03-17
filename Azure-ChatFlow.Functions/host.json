@@ -8,5 +8,8 @@
       },
       "enableLiveMetricsFilters": true
     }
+  },
+  "extensions": {
+    "signalR": {}
   }
 }
