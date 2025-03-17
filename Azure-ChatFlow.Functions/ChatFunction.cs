@@ -1,4 +1,5 @@
 ﻿using AzureChatFlow.Functions.DTO;
+using AzureChatFlow.Infrastructure.ConnectionMap;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
@@ -14,24 +15,32 @@ namespace AzureChatFlow.Functions
 {
     public class ChatFunction
     {
+        private readonly ConnectionMap _connectionMap;
+        private readonly ILogger<ChatFunction> _logger;
+
+        public ChatFunction(ConnectionMap connectionMap, ILogger<ChatFunction> logger)
+        {
+            _connectionMap = connectionMap ?? throw new ArgumentNullException(nameof(connectionMap));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
         [FunctionName("negotiate")]
         public async Task<IActionResult> Negotiate(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequest req,
-            [SignalRConnectionInfo(HubName = "chathub", ConnectionStringSetting = "AzureSignalRConnectionString")] SignalRConnectionInfo connectionInfo,
-            ILogger log)
+            [SignalRConnectionInfo(HubName = "chathub", ConnectionStringSetting = "AzureSignalRConnectionString")] SignalRConnectionInfo connectionInfo)
         {
-            log.LogInformation("Negotiate function called.");
+            _logger.LogInformation("Negotiate function called.");
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             var data = JsonSerializer.Deserialize<NegotiateRequestDto>(requestBody);
             string userId = data?.UserId;
 
             if (string.IsNullOrEmpty(userId))
             {
-                log.LogWarning("No UserId provided in negotiate request.");
+                _logger.LogWarning("No UserId provided in negotiate request.");
                 return new BadRequestObjectResult("UserId is required for negotiation.");
             }
 
-            log.LogInformation($"Negotiating connection for UserId={userId}");
+            _logger.LogInformation($"Negotiating connection for UserId={userId}");
             string connectionUrlWithUserId = $"{connectionInfo.Url}&userId={Uri.EscapeDataString(userId)}";
             var customConnectionInfo = new
             {
@@ -45,17 +54,16 @@ namespace AzureChatFlow.Functions
         [FunctionName("SendMessage")]
         public async Task<IActionResult> SendMessage(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequest req,
-            [SignalR(HubName = "chathub")] IAsyncCollector<SignalRMessage> signalRMessages,
-            ILogger log)
+            [SignalR(HubName = "chathub")] IAsyncCollector<SignalRMessage> signalRMessages)
         {
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             MessageDto messageData = JsonSerializer.Deserialize<MessageDto>(requestBody);
-            log.LogInformation($"Message from SenderId={messageData.SenderId} to ReceiverId={messageData.ReceiverId}: {messageData.Message}: {messageData.SendAt}");
+            _logger.LogInformation($"Message from SenderId={messageData.SenderId} to ReceiverId={messageData.ReceiverId}: {messageData.Message}: {messageData.SendAt}");
 
-            string connectionId = ConnectionMap.Get(messageData.ReceiverId);
+            string connectionId = _connectionMap.Get(messageData.ReceiverId);
             if (string.IsNullOrEmpty(connectionId))
             {
-                log.LogWarning($"No ConnectionId found for ReceiverId={messageData.ReceiverId}");
+                _logger.LogWarning($"No ConnectionId found for ReceiverId={messageData.ReceiverId}");
                 return new BadRequestObjectResult("Receiver is not online.");
             }
 
@@ -65,20 +73,19 @@ namespace AzureChatFlow.Functions
                 Target = "ReceiveMessage",
                 Arguments = new[] { messageData.SenderId, messageData.ReceiverId, messageData.Message, messageData.SendAt.ToString() }
             });
-            log.LogInformation($"Message sent to ConnectionId={connectionId}");
-            log.LogInformation($"Message sent={messageData}");
+            _logger.LogInformation($"Message sent to ConnectionId={connectionId}");
+            _logger.LogInformation($"Message sent={messageData}");
             return new OkResult();
         }
 
         [FunctionName("RegisterConnection")]
         public async Task<IActionResult> RegisterConnection(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequest req,
-            ILogger log)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequest req)
         {
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             var data = JsonSerializer.Deserialize<ConnectionRegistrationDto>(requestBody);
-            ConnectionMap.Set(data.UserId, data.ConnectionId);
-            log.LogInformation($"Registered UserId={data.UserId} with ConnectionId={data.ConnectionId}");
+            _connectionMap.Set(data.UserId, data.ConnectionId);
+            _logger.LogInformation($"Registered UserId={data.UserId} with ConnectionId={data.ConnectionId}");
             return new OkResult();
         }
 
@@ -87,17 +94,16 @@ namespace AzureChatFlow.Functions
             [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequest req, ILogger log)
         {
             var data = JsonSerializer.Deserialize<ConnectionRegistrationDto>(await new StreamReader(req.Body).ReadToEndAsync());
-            ConnectionMap.Delete(data.UserId);
-            log.LogInformation($"Unregistered UserId={data.UserId}");
+            _connectionMap.Delete(data.UserId);
+            _logger.LogInformation($"Unregistered UserId={data.UserId}");
             return new OkResult();
         }
 
         [FunctionName("Ping")]
         public async Task<IActionResult> Ping(
-                    [HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequest req,
-                    ILogger log)
+                    [HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequest req)
         {
-            log.LogInformation("Ping request received.");
+            _logger.LogInformation("Ping request received.");
             return new OkObjectResult(new { status = "online", timestamp = DateTime.UtcNow });
         }
     }
