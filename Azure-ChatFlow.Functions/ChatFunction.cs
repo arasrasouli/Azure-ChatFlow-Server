@@ -1,110 +1,131 @@
 ﻿using AzureChatFlow.Functions.DTO;
-using AzureChatFlow.Infrastructure.ConnectionMap;
-using Microsoft.AspNetCore.Http;
+using AzureChatFlow.Common.Model;
+using AzureChatFlow.Service;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.Azure.WebJobs.Extensions.SignalRService;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using System;
-using System.IO;
+using System.Net;
 using System.Text.Json;
-using System.Threading.Tasks;
 
 namespace AzureChatFlow.Functions
 {
     public class ChatFunction
     {
-        private readonly ConnectionMap _connectionMap;
         private readonly ILogger<ChatFunction> _logger;
+        private readonly ChatMessageService _chatMessageService;
 
-        public ChatFunction(ConnectionMap connectionMap, ILogger<ChatFunction> logger)
+        public ChatFunction(ILogger<ChatFunction> logger, ChatMessageService chatMessageService)
         {
-            _connectionMap = connectionMap ?? throw new ArgumentNullException(nameof(connectionMap));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _chatMessageService = chatMessageService ?? throw new ArgumentNullException(nameof(chatMessageService));
         }
 
-        [FunctionName("negotiate")]
-        public async Task<IActionResult> Negotiate(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequest req,
-            [SignalRConnectionInfo(HubName = "chathub", ConnectionStringSetting = "AzureSignalRConnectionString")] SignalRConnectionInfo connectionInfo)
+        [Function("Negotiate")]
+        public async Task<HttpResponseData> Negotiate(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequestData req,
+            FunctionContext context)
         {
-            _logger.LogInformation("Negotiate function called.");
-            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-            var data = JsonSerializer.Deserialize<NegotiateRequestDto>(requestBody);
-            string userId = data?.UserId;
-
-            if (string.IsNullOrEmpty(userId))
+            try
             {
-                _logger.LogWarning("No UserId provided in negotiate request.");
-                return new BadRequestObjectResult("UserId is required for negotiation.");
+                _logger.LogInformation("Negotiate function called.");
+                string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+                var negotiateData = JsonSerializer.Deserialize<NegotiateRequestDto>(requestBody);
+                if (negotiateData == null)
+                {
+                    var negotiateResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await negotiateResponse.WriteStringAsync("Invalid or missing negotiation data.");
+                    return negotiateResponse;
+                }
+
+                var connectionInfo = await _chatMessageService.NegotiateAsync(negotiateData.UserId);
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                response.Headers.Add("Content-Type", "application/json");
+                await response.WriteStringAsync(JsonSerializer.Serialize(connectionInfo));
+                return response;
             }
-
-            _logger.LogInformation($"Negotiating connection for UserId={userId}");
-            string connectionUrlWithUserId = $"{connectionInfo.Url}&userId={Uri.EscapeDataString(userId)}";
-            var customConnectionInfo = new
+            catch (InvalidOperationException ex)
             {
-                url = connectionUrlWithUserId,
-                accessToken = connectionInfo.AccessToken
-            };
-
-            return new OkObjectResult(customConnectionInfo);
+                var response = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
+                await response.WriteStringAsync(ex.Message);
+                return response;
+            }
         }
 
-        [FunctionName("SendMessage")]
-        public async Task<IActionResult> SendMessage(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequest req,
-            [SignalR(HubName = "chathub")] IAsyncCollector<SignalRMessage> signalRMessages)
+        [Function("SendMessage")]
+        public async Task<HttpResponseData> SendMessage(
+                    [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequestData req,
+                    FunctionContext context)
         {
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-            MessageDto messageData = JsonSerializer.Deserialize<MessageDto>(requestBody);
-            _logger.LogInformation($"Message from SenderId={messageData.SenderId} to ReceiverId={messageData.ReceiverId}: {messageData.Message}: {messageData.SendAt}");
-
-            string connectionId = _connectionMap.Get(messageData.ReceiverId);
-            if (string.IsNullOrEmpty(connectionId))
+            MessageDto messageData = JsonSerializer.Deserialize<MessageDto>(requestBody) ?? new MessageDto();
+            bool success = await _chatMessageService.SendMessageAsync(new MessageModel()
             {
-                _logger.LogWarning($"No ConnectionId found for ReceiverId={messageData.ReceiverId}");
-                return new BadRequestObjectResult("Receiver is not online.");
-            }
-
-            await signalRMessages.AddAsync(new SignalRMessage
-            {
-                ConnectionId = connectionId,
-                Target = "ReceiveMessage",
-                Arguments = new[] { messageData.SenderId, messageData.ReceiverId, messageData.Message, messageData.SendAt.ToString() }
+                Message = messageData.Message,
+                ReceiverId = messageData.ReceiverId,
+                SendAt = messageData.SendAt,
+                SenderId = messageData.SenderId
             });
-            _logger.LogInformation($"Message sent to ConnectionId={connectionId}");
-            _logger.LogInformation($"Message sent={messageData}");
-            return new OkResult();
+
+            if (!success)
+            {
+                var response = req.CreateResponse(HttpStatusCode.BadRequest);
+                await response.WriteStringAsync("Receiver is not online.");
+                return response;
+            }
+
+            return req.CreateResponse(HttpStatusCode.OK);
         }
 
-        [FunctionName("RegisterConnection")]
-        public async Task<IActionResult> RegisterConnection(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequest req)
+        [Function("RegisterConnection")]
+        public async Task<HttpResponseData> RegisterConnection(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequestData req,
+            FunctionContext context)
         {
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             var data = JsonSerializer.Deserialize<ConnectionRegistrationDto>(requestBody);
-            _connectionMap.Set(data.UserId, data.ConnectionId);
+
+            if (data == null || string.IsNullOrEmpty(data.UserId) || string.IsNullOrEmpty(data.ConnectionId))
+            {
+                var response = req.CreateResponse(HttpStatusCode.BadRequest);
+                await response.WriteStringAsync("Invalid or missing connection data.");
+                return response;
+            }
+
+            await _chatMessageService.RegisterConnectionAsync(new ConnectionRegistrationModel()
+            {
+                ConnectionId = data.ConnectionId,
+                UserId = data.UserId
+            });
+
             _logger.LogInformation($"Registered UserId={data.UserId} with ConnectionId={data.ConnectionId}");
-            return new OkResult();
+            return req.CreateResponse(HttpStatusCode.OK);
         }
 
-        [FunctionName("UnregisterConnection")]
-        public async Task<IActionResult> UnregisterConnection(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequest req, ILogger log)
+        [Function("UnregisterConnection")]
+        public async Task<HttpResponseData> UnregisterConnection(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequestData req,
+            FunctionContext context)
         {
             var data = JsonSerializer.Deserialize<ConnectionRegistrationDto>(await new StreamReader(req.Body).ReadToEndAsync());
-            _connectionMap.Delete(data.UserId);
-            _logger.LogInformation($"Unregistered UserId={data.UserId}");
-            return new OkResult();
+            if (data == null || string.IsNullOrEmpty(data.UserId))
+            {
+                var response = req.CreateResponse(HttpStatusCode.BadRequest);
+                await response.WriteStringAsync("Invalid or missing connection data.");
+                return response;
+            }
+
+            await _chatMessageService.UnregisterConnectionAsync(data.UserId);
+            return req.CreateResponse(HttpStatusCode.OK);
         }
 
-        [FunctionName("Ping")]
-        public async Task<IActionResult> Ping(
-                    [HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequest req)
+        [Function("Ping")]
+        public Task<IActionResult> Ping(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequestData req)
         {
             _logger.LogInformation("Ping request received.");
-            return new OkObjectResult(new { status = "online", timestamp = DateTime.UtcNow });
+            return Task.FromResult<IActionResult>(new OkObjectResult(new { status = "online", timestamp = DateTime.UtcNow }));
         }
     }
 }
