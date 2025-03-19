@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace AzureChatFlow.Functions.DTO
+﻿namespace AzureChatFlow.Functions.DTO
 {
     public class MessageDto
     {
