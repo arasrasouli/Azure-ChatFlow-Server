@@ -2,8 +2,8 @@
   "IsEncrypted": false,
   "Values": {
     "AzureWebJobsStorage": "",
-    "FUNCTIONS_WORKER_RUNTIME": "dotnet",
-    "SignalRConnection": "Endpoint=https://<your-signalr>.service.signalr.net;AccessKey=<your-key>;Version=1.0;"
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "AzureSignalRConnectionString": "Endpoint=https://<your-signalr>.service.signalr.net;AccessKey=<your-key>;Version=1.0;"
   },
   "Host": {
     "CORS": "http://localhost:3000",
