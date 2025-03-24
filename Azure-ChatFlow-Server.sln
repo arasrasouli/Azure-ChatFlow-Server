@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Azure-ChatFlow.Service", "A
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Azure-ChatFlow.Common", "Azure-ChatFlow.Common\Azure-ChatFlow.Common.csproj", "{6AB98F2F-85FE-47CB-AE75-C5D63E2AB2BA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Azure-ChatFlow.DAL", "Azure-ChatFlow.DAL\Azure-ChatFlow.DAL.csproj", "{DE564C09-6F56-4E9A-A935-9B03502C50C2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -33,6 +35,10 @@ Global
 		{6AB98F2F-85FE-47CB-AE75-C5D63E2AB2BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6AB98F2F-85FE-47CB-AE75-C5D63E2AB2BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6AB98F2F-85FE-47CB-AE75-C5D63E2AB2BA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DE564C09-6F56-4E9A-A935-9B03502C50C2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DE564C09-6F56-4E9A-A935-9B03502C50C2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DE564C09-6F56-4E9A-A935-9B03502C50C2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DE564C09-6F56-4E9A-A935-9B03502C50C2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
