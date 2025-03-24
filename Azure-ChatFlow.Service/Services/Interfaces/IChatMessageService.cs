@@ -8,5 +8,6 @@ namespace AzureChatFlow.Service
         Task<ConnectionInfoModel> NegotiateAsync(string requestBody);
         Task RegisterConnectionAsync(ConnectionRegistrationModel connectionData);
         Task<bool> UnregisterConnectionAsync(string userId);
+        Task<List<MessageModel>> GetChatHistoryAsync(string senderId, string receiverId, int? maxResults);
     }
 }
