@@ -1,6 +1,9 @@
-﻿using AzureChatFlow.Infrastructure.ConnectionMap;
+﻿using Azure.Data.Tables;
+using AzureChatFlow.DAL.Repositories;
+using AzureChatFlow.Infrastructure.ConnectionMap;
 using AzureChatFlow.Infrastructure.SignalR;
 using AzureChatFlow.Service;
+using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Azure.SignalR.Management;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,38 +14,52 @@ namespace AzureChatFlow.Functions
 {
     public class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
-            var host = new HostBuilder()
-                .ConfigureFunctionsWebApplication()
-                .ConfigureServices(async services =>
-                {
-                    services.AddSingleton<ConnectionMap>();
+            var builder = FunctionsApplication.CreateBuilder(args);
 
-                    services.AddLogging(logging =>
-                    {
+            builder.Configuration.AddJsonFile("local.settings.json", optional: true, reloadOnChange: true);
+
+            builder.Services.AddSingleton<ConnectionMap>();
+
+            builder.Services.AddLogging(logging =>
+            {
                         logging.AddConsole();
+            });
+
+            var signalRConnectionString = builder.Configuration[Literals.AzureSignalRConnectionString];
+            var serviceManager = new ServiceManagerBuilder()
+                .WithOptions(option =>
+                {
+                    option.ConnectionString = signalRConnectionString;
+                }).BuildServiceManager();
+
+            var hubContext = await serviceManager.CreateHubContextAsync("chathub", new CancellationToken());
+
+            builder.Services.AddSingleton(hubContext);
+
+
+            builder.Services.AddSingleton<ISignalRClient, SignalRClient>();
+
+
+            builder.Services.AddSingleton<ChatMessageService>();
+
+
+            builder.Services.AddScoped(typeof(ITableStorageRepository<>), typeof(TableStorageRepository<>));
+
+            string tableStorageConnectionString = builder.Configuration.GetValue<string>(Literals.TableStorageConnectionString);
+
+
+            builder.Services.AddScoped<IChatHistoryRepository>(sp =>
+                    {
+                        string tableName = builder.Configuration.GetValue<string>(Literals.ChatTableName);
+                        TableClient tableClient = new TableClient(tableStorageConnectionString, tableName);
+                        return new ChatHistoryRepository(tableClient);
                     });
 
-                    var configuration = services.BuildServiceProvider().GetRequiredService<IConfiguration>();
-                    var connectionString = configuration["AzureSignalRConnectionString"];
-                    var serviceManager = new ServiceManagerBuilder()
-                                        .WithOptions(option =>
-                                        {
-                                            option.ConnectionString = connectionString;
-                                        })
-                                        .BuildServiceManager();
+            builder.ConfigureFunctionsWebApplication();
 
-                    var hubContext = await serviceManager.CreateHubContextAsync("chathub", new CancellationToken());
-                    services.AddSingleton(hubContext);
-
-                    services.AddSingleton<ISignalRClient, SignalRClient>();
-
-                    services.AddSingleton<ChatMessageService>();
-                })
-                .Build();
-
-            host.Run();
+            builder.Build().Run();
         }
     }
 }

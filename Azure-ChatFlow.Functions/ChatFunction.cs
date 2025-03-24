@@ -59,7 +59,7 @@ namespace AzureChatFlow.Functions
                     FunctionContext context)
         {
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-            MessageDto messageData = JsonSerializer.Deserialize<MessageDto>(requestBody) ?? new MessageDto();
+            MessageDTO messageData = JsonSerializer.Deserialize<MessageDTO>(requestBody) ?? new MessageDTO();
             bool success = await _chatMessageService.SendMessageAsync(new MessageModel()
             {
                 Message = messageData.Message,
@@ -76,6 +76,50 @@ namespace AzureChatFlow.Functions
             }
 
             return req.CreateResponse(HttpStatusCode.OK);
+        }
+
+        [Function("GetChatHistory")]
+        public async Task<HttpResponseData> GetChatHistory(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequestData req)
+        {
+            _logger.LogInformation("GetChatHistory function called.");
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            ChatHistoryRequestDTO reqData = JsonSerializer.Deserialize<ChatHistoryRequestDTO>(requestBody) ?? new ChatHistoryRequestDTO();
+
+            try
+            {
+                _logger.LogInformation($"GetChatHistory called for SenderId={reqData.SenderId} and ReceiverId={reqData.ReceiverId}, MaxResults={reqData.MaxResults ?? 0}");
+
+                if (string.IsNullOrEmpty(reqData.SenderId) || string.IsNullOrEmpty(reqData.ReceiverId))
+                {
+                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequestResponse.WriteStringAsync("SenderId and ReceiverId are required.");
+                    return badRequestResponse;
+                }
+
+                var history = await _chatMessageService.GetChatHistoryAsync(reqData.SenderId, reqData.ReceiverId, reqData.MaxResults);
+
+                var historyDtos = history.Select(entity => new MessageDTO
+                {
+                    SenderId = entity.SenderId,
+                    ReceiverId = entity.ReceiverId,
+                    Message = entity.Message,
+                    SendAt = entity.SendAt,
+                    ReadStatus = (int)entity.ReadStatus
+                }).ToList();
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                response.Headers.Add("Content-Type", "application/json");
+                await response.WriteStringAsync(JsonSerializer.Serialize(historyDtos));
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to retrieve chat history for SenderId={SenderId} and ReceiverId={ReceiverId}", reqData?.SenderId ?? "unknown", reqData?.ReceiverId ?? "unknown");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteStringAsync("Error retrieving chat history.");
+                return errorResponse;
+            }
         }
 
         [Function("RegisterConnection")]
