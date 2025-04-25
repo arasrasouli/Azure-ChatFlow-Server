@@ -11,7 +11,7 @@
 Backend for a real-time chat application built with Azure Functions and Azure SignalR Service. This project serves as the server-side component of a chat system, handling message broadcasting and client connections in real-time. It integrates with the [Azure-ChatFlow-Client](https://github.com/arasrasouli/azure-chat-flow-client), a Vue.js/Nuxt.js frontend, to provide a seamless chat experience.
 
 ## Project Overview
-![image](https://github.com/user-attachments/assets/446fed0f-0781-4bec-8f63-232cb79470b3)
+![image](https://github.com/user-attachments/assets/8b7be52e-0d74-4c59-97d5-88b948fc1dea)
 
 `Azure-ChatFlow-Server` is a serverless backend leveraging Azure Functions to process HTTP requests and Azure SignalR Service for real-time WebSocket communication. The primary functions include:
 
